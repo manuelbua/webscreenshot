@@ -33,6 +33,7 @@ var Page = (function(custom_headers, http_username, http_password, image_width, 
 	var requestCount = 0;
 	var forceRenderTimeout;
 	var ajaxRenderTimeout;
+	var redirectDetected = false;
 
 	var page = require('webpage').create();
 	page.viewportSize = {
@@ -84,6 +85,18 @@ var Page = (function(custom_headers, http_username, http_password, image_width, 
 	api.render = function(url, file) {
 		opts.file = file;
 		
+		page.onNavigationRequested = function(naviUrl, type, willNavigate, main) {
+			console.log(url, " => ", naviUrl);
+
+			if( !main ) return;
+			if( !redirectDetected && isRedirectToSkip(url, naviUrl) ) {
+				redirectDetected = true;
+				console.log('Redirect detected, aborting.');
+				console.log(url, " => ", naviUrl);
+				phantom.exit(3);
+			}
+		}
+
 		page.open(url, function(status) {
 			if (status !== "success") {
 				if (page.failReason && page.failReason == '401') {
@@ -110,6 +123,26 @@ var Page = (function(custom_headers, http_username, http_password, image_width, 
 	}
 
 	function noop() {}
+
+	function isRedirectToSkip(userUrl, naviUrl) {
+		if( naviUrl === 'about:blank' ) {
+			// not sure why, but when a page is loaded the URL changes to
+			// the "about:blank" page: by handling this as a redirect, it
+			// will cause a segfault, so avoid that
+			return false;
+		}
+
+		// create two fake A elements to use the browser's built-in parser
+		const user = document.createElement('a');
+		const navi = document.createElement('a');
+		user.setAttribute('href', userUrl);
+		navi.setAttribute('href', naviUrl);
+
+		// localhost redirects are still followed (eg. "/" => "/admin")
+		is_good = (user.hostname === navi.hostname) ||
+				  ('www.' + user.hostname === navi.hostname );
+		return !is_good;
+	};
 
 	return api;
 });
